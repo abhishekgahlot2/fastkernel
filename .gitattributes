@@ -1,0 +1,9 @@
+/dev/tests export-ignore
+/dev/benchmarks export-ignore
+/dev/requirements.txt export-ignore
+/dev/ruff.toml export-ignore
+/.github export-ignore
+/.gitignore export-ignore
+/.gitattributes export-ignore
+*.patch -whitespace
+*.pdf binary

@@ -1,0 +1,368 @@
+# Benchmarks
+
+We measured every number here on our own Macs. The tests use Qwen3.8-27B (4-bit), plus one run with Qwen3.6-35B-A3B.
+
+## How to read the numbers
+
+| Term | What it means |
+|---|---|
+| tok/s | Tokens per second: how fast the answer is written (the decode speed). A token is a word or part of a word. |
+| Sampled | The model picks each token at random, weighted by its own probabilities (temperature 1). |
+| Greedy | The model always picks its most likely next token. |
+| Draft model | A small model that guesses the next few tokens. The full model checks every guess before it keeps it. |
+| Context | The most text the model can hold at once: your prompt plus its answer. |
+
+Most M5 Max tests use the same 6 prompts. They cover chat, math, code, a code file, a long agent task and Portuguese.
+Some tables call the Portuguese prompt "multilingual". Each test's fine print, such as seeds and builds, is in its
+"Details" fold. A 95% confidence interval, written [low, high], is the range the true average falls in, with 95%
+confidence.
+
+## M5 Max (40-core GPU, 128 GB)
+
+### Sampled answers vs Splash and MTPLX, 6 prompts
+
+We sent the 6 prompts, twice each, to each engine in turn. MTPLX uses MTP, the model's built-in way to guess its next
+few tokens.
+
+| Engine | tok/s | |
+|---|---:|---|
+| **fastkernel** | **123.5** | |
+| Splash 1.0.2 | 86.9 | fastkernel is **1.42× faster** |
+| MTPLX (4-bit + MTP) | 64.0 | fastkernel is **1.93× faster** |
+
+Conditions: nothing else used the GPU during the run.
+
+<details>
+<summary>Details</summary>
+
+- Settings: temperature 1, top-p 0.95, top-k 20, up to 1,024 tokens per answer.
+- Seeds 20261501 and 20261502. A seed fixes the random picks, so a run can be repeated.
+- The engines took turns on each prompt. The client (the program sending the prompts) timed each answer, and we
+  averaged over all requests.
+- Builds: fastkernel development build stack28; Splash 1.0.2 as installed; MTPLX from a local install (Bare-Speed
+  4-bit + MTP). This run didn't record the thermal state or whether Chrome was open.
+
+Per prompt, in tok/s:
+
+| Prompt | fastkernel | Splash | MTPLX |
+|---|---:|---:|---:|
+| math | 163 | 122 | 79 |
+| code | 168 | 116 | 76 |
+| code file | 133 | 95 | 70 |
+| agent | 103 | 70 | 48 |
+| Portuguese | 93 | 66 | 62 |
+| chat | 81 | 53 | 50 |
+
+</details>
+
+### Reading a long prompt vs MTPLX
+
+Before an engine writes anything, it reads your whole prompt. We timed that step on a new 16.7K-token prompt, three
+times on each engine. Speed here is prompt tokens read per second.
+
+| Engine | Prompt tok/s | |
+|---|---:|---|
+| **fastkernel** | **775** | |
+| MTPLX (4-bit + MTP) | 704 | fastkernel is **1.10× faster** |
+
+Conditions: a new prompt each time, so neither engine could reuse earlier work.
+
+<details>
+<summary>Details</summary>
+
+- 16,693 prompt tokens. Each request carried a new random string (a nonce). So neither engine could reuse work saved
+  from an earlier prompt (no prefix-cache hit).
+- Each answer was one token long. The engines took turns.
+- Seconds per request: fastkernel 22.37 / 21.60 / 20.69; MTPLX 24.82 / 23.65 / 22.67. The speeds above are the averages.
+
+</details>
+
+### Greedy answers vs AX Engine, 5 prompts
+
+We sent 5 of the prompts, twice each, to fastkernel and to AX Engine 7.5.7. AX takes prompts of up to 16K tokens, so
+we left out the long agent task.
+
+| Engine | tok/s | |
+|---|---:|---|
+| **fastkernel** | **126.0** | |
+| AX Engine 7.5.7 (MXFP4 + MTP) | 40.5 | fastkernel is **3.11× faster** |
+
+Conditions: nothing else used the GPU during the run.
+
+<details>
+<summary>Details</summary>
+
+- AX model: `AutomatosX/AX-Qwen3.8-27B-MLX-AXQ-MXFP4-MTP`, the only public AX build of this model. MXFP4 is its
+  4-bit number format.
+- AX flags: `--mlx-mtp-policy required --speculation-profile coding`. AX's own guessing was on, and it kept 92% of its
+  guesses.
+- fastkernel: development build stack7. With the long agent task included, fastkernel's greedy average is 120.8.
+- AX's answers are shorter and show no written-out reasoning. That changes how long an answer is, not how fast it is
+  written.
+
+Per prompt, in tok/s:
+
+| Prompt | fastkernel | AX |
+|---|---:|---:|
+| chat | 82.6 | 33.9 |
+| Portuguese | 93.3 | 25.7 |
+| math | 167.2 | 55.6 |
+| code | 150.7 | 52.2 |
+| code file | 136.2 | 35.2 |
+
+</details>
+
+### Sampled answers vs AX Engine, 5 prompts
+
+The same 5 prompts, once each, with sampled answers.
+
+| Engine | tok/s | |
+|---|---:|---|
+| **fastkernel** | **115.0** | |
+| AX Engine 7.5.7 (MXFP4 + MTP) | 27.9 | fastkernel is **4.12× faster** |
+
+Conditions: as in the greedy run above.
+
+<details>
+<summary>Details</summary>
+
+- One seed per prompt.
+- AX uses its guessing only for greedy answers. Here it wrote 2,824 of its 2,928 steps without it.
+
+</details>
+
+### Sampled answers vs llama.cpp and MLX-LM, 6 prompts
+
+We ran fastkernel, llama.cpp and MLX-LM side by side. We sent the 6 prompts, twice each, to each engine in turn.
+
+| Engine | tok/s | |
+|---|---:|---|
+| **fastkernel** | **116.8** | |
+| MLX-LM 0.31.3 | 31.2 | fastkernel is **3.74× faster** |
+| llama.cpp 0.5.0 | 27.0 | fastkernel is **4.33× faster** |
+
+Conditions: Chrome was open for part of the run, and the Mac was warm ("fair") for most requests.
+
+<details>
+<summary>Details</summary>
+
+Setup:
+
+- MLX-LM ran `mlx-community/Qwen3.8-27B-4bit` (4-bit, group 64, 4.50 bits per weight). fastkernel's package was
+  converted from these same weights.
+- llama.cpp ran `lmstudio-community/Qwen3.8-27B-GGUF` Q4_K_M (4.92 bits per weight). GGUF is llama.cpp's model file
+  format, and Q4_K_M is one of its 4-bit types. Of the public Q4_K_M files, this one is closest to 4.5 bits; Qwen
+  publishes no official GGUF.
+- Versions: llama.cpp 0.5.0 (build 11146, Metal); mlx-lm 0.31.3 with mlx 0.32.3.
+- Both ran at their default settings. Neither turns on speculative decoding (draft-and-check) by default. llama.cpp
+  used our server's 40,960-token context and one slot (one request at a time).
+- MLX-LM's server ignores the request's `reasoning_effort`. So its prompts were 38–42 tokens longer, with the chat
+  template's default instruction. That changes the text, not the speed per token.
+
+Results:
+
+- 95% confidence intervals: fastkernel 116.8 [92.7, 142.8]; ratio vs llama.cpp 4.33 [3.46, 5.20], vs MLX-LM 3.74
+  [3.01, 4.47].
+- Conditions: the Mac was cool ("nominal") for the first 4 requests, then warm ("fair") for 32 of 36. Chrome was open
+  for 16 of 36 requests.
+- fastkernel: development build stack51 with the release settings (build `src-aeef908a…`).
+
+Per prompt, in tok/s:
+
+| Prompt | fastkernel | MLX-LM | llama.cpp |
+|---|---:|---:|---:|
+| chat | 80 | 31 | 28 |
+| math | 161 | 33 | 28 |
+| code | 150 | 32 | 28 |
+| code file | 132 | 32 | 27 |
+| agent | 87 | 28 | 24 |
+| multilingual | 91 | 32 | 27 |
+
+</details>
+
+### Sampled and greedy answers vs Splash, 6 prompts
+
+We ran the first Splash test again with the same prompts. Then we repeated it with greedy answers.
+
+| Engine | Sampled tok/s | Greedy tok/s | |
+|---|---:|---:|---|
+| **fastkernel** | **121.0** | **124.8** | |
+| Splash 1.0.2 | 86.6 | 90.3 | fastkernel is **1.40×** (sampled) and **1.38×** (greedy) **faster** |
+
+Conditions: Chrome was open, and the Mac ran warm ("fair" thermal state) for most requests.
+
+<details>
+<summary>Details</summary>
+
+95% confidence intervals (bootstrap over prompts):
+
+| Answers | fastkernel | Splash | Ratio |
+|---|---|---|---|
+| Sampled | 121.0 [95.1, 148.9] | 86.6 [67.3, 107.2] | 1.398 [1.343, 1.452] |
+| Greedy | 124.8 [98.3, 152.3] | 90.3 [72.2, 108.7] | 1.382 [1.316, 1.457] |
+
+The speed ranges are wide because the prompts range from 54 to 171 tok/s. The ratio compares each prompt with itself,
+so its range is narrow.
+
+Per prompt, in tok/s:
+
+| Prompt | fastkernel sampled | Splash sampled | fastkernel greedy | Splash greedy |
+|---|---:|---:|---:|---:|
+| chat | 81 | 54 | 77 | 59 |
+| math | 171 | 122 | 166 | 122 |
+| code | 154 | 114 | 169 | 110 |
+| code file | 137 | 93 | 139 | 103 |
+| agent | 89 | 70 | 99 | 78 |
+| multilingual | 94 | 67 | 100 | 70 |
+
+- Builds: fastkernel stack51 (build ID `src-aeef908a…`); Splash 1.0.2 as installed (`src-4023cf43…`). Both servers
+  ran in one session, and all 48 requests completed cleanly.
+- In all 12 sampled requests, Splash wrote the same number of tokens as in the first run. So it did the same work
+  both times (86.6 vs 86.9 tok/s).
+- On two prompts, the greedy text differs from an older fastkernel build. There the text is byte-identical to
+  fastkernel's own reference path (1,533/1,533 positions), the path the model check below compares against.
+
+</details>
+
+### Qwen3.6-35B-A3B: sampled and greedy answers vs Splash, 6 prompts
+
+The same test on Splash's other model, Qwen3.6-35B-A3B, against Splash 1.0.2. It is a mixture-of-experts (MoE)
+model. It has many small expert blocks and uses only a few of them for each token.
+
+| Engine | Sampled tok/s | Greedy tok/s | |
+|---|---:|---:|---|
+| **fastkernel** | **271.5** | **271.2** | |
+| Splash 1.0.2 | 218.9 | 249.8 | fastkernel is **1.24×** (sampled) and **1.09×** (greedy) **faster** |
+
+Conditions: Chrome was open. The Mac was cool for 30 requests and warm ("fair") for 18.
+
+<details>
+<summary>Details</summary>
+
+- Model: `incoai/Qwen3.6-35B-A3B-Splash` (4-bit mixture of experts) with its DFlash 2 draft model.
+- fastkernel: development build stack51 with the release settings (build `src-aeef908a…`).
+- In this build, the draft's one-launch K/V math (part 3 of [What's inside](WHATS-INSIDE.md)) covered the 27B's layer
+  shapes. On this model it used the regular path, which is also exact. K/V are the keys and values the model stores
+  for each earlier token.
+
+95% confidence intervals:
+
+| Answers | fastkernel | Splash | Ratio |
+|---|---|---|---|
+| Sampled | 271.5 [210.7, 334.9] | 218.9 [173.8, 266.0] | 1.240 [1.201, 1.286] |
+| Greedy | 271.2 [214.9, 328.7] | 249.8 [197.8, 301.5] | 1.086 [1.054, 1.118] |
+
+Per prompt, in tok/s:
+
+| Prompt | fastkernel sampled | Splash sampled | fastkernel greedy | Splash greedy |
+|---|---:|---:|---:|---:|
+| chat | 197 | 159 | 208 | 180 |
+| math | 367 | 275 | 348 | 317 |
+| code | 379 | 306 | 372 | 334 |
+| code file | 283 | 236 | 281 | 268 |
+| agent | 180 | 151 | 172 | 159 |
+| multilingual | 222 | 186 | 247 | 240 |
+
+</details>
+
+## M5 Pro (16-core GPU, 24 GB)
+
+### 24 GB M5 Pro with a 69K context
+
+We let the GPU use 20 GB with `sudo sysctl iogpu.wired_limit_mb=20480` (it resets on reboot). We ran fastkernel
+text-only (`SPLASH_TEXT_ONLY=1`), which skips the part of the model that reads images. We sent one greedy request per
+prompt.
+
+| Prompt | fastkernel tok/s |
+|---|---:|
+| math | **78.9** |
+| code | **73.3** |
+| chat | **39.2** |
+| code edit (3.5K-token prompt) | **121.3** |
+| agent task (32K-token prompt) | **43.0** |
+
+Context: **69,625 tokens**.
+
+Conditions: on battery, with Chrome and Safari quit. The Mac was warm ("fair") from the third request on.
+
+<details>
+<summary>Details</summary>
+
+Memory plan, default settings vs the GPU given 20 GB:
+
+| | Default | 20 GB |
+|---|---:|---:|
+| Working set: memory macOS lets the GPU use | 18,186 MiB | 20,480 MiB |
+| Dynamic budget: memory for the context | 673 MB | 2,668 MB |
+| Small draft head (the draft's short word list) | doesn't fit | fits |
+| Context | 8,185 tokens | 69,625 tokens |
+
+- Time to first token: math 0.8 s, code 1.1 s, chat 0.5 s, code edit 9.3 s, agent task 103.7 s.
+- The code edit and the agent task moved 121 MB and 71 MB of other memory to swap, the disk space macOS uses as
+  spare memory. After the agent task, macOS showed memory pressure at "warning".
+- Tool calls, end to end including the prompt: code edit 84.3 tok/s, tool-copy 106.7, tool-edit 66.5.
+- Exact on the real chip: 5,844/5,844 positions have the same numbers with and without the multi-row checks. A
+  multi-row check tests many tokens in one pass.
+- Flags: the release defaults plus `SPLASH_TEXT_ONLY=1` and a row logger.
+
+</details>
+
+### 24 GB M5 Pro at default settings
+
+The same Mac with no memory setting changed. fastkernel runs text-only with an 8,185-token context.
+
+| Prompt | fastkernel tok/s |
+|---|---:|
+| math | **77.6** |
+| code | **72.0** |
+| chat | **38.5** |
+
+Conditions: on power, with Chrome, Safari and ChatGPT quit. The Mac stayed cool the whole time.
+
+<details>
+<summary>Details</summary>
+
+- Tool calls, end to end including the prompt: tool-copy 115.3 tok/s, tool-edit 75.5.
+- Exact on the real chip: 2,058/2,058 positions match with and without the multi-row checks. The M5 Pro also matched
+  our M5 Max running as if it had 16 GPU cores, position for position.
+- Build: a development build with the same memory plan. Its single-request paths match the release on 16 cores.
+- The small draft head didn't fit this memory plan, so fastkernel used the full one.
+- A separate run with the Mac in normal use (Chrome open, CPU load up to 4.6): 56.6 tok/s sampled, 50.2 greedy.
+
+</details>
+
+## How long a prompt can be
+
+| Setup | Longest context |
+|---|---:|
+| The model itself | 262,144 tokens |
+| Our M5 Max server | 40,960 tokens |
+| 24 GB Mac, GPU given 20 GB | 69,625 tokens |
+| 24 GB Mac, default settings | 8,185 tokens |
+
+On the M5 Max, we checked outputs for exactness up to 128K tokens.
+
+## Is the output exact?
+
+The small draft model only guesses. The full model checks every token before it keeps it.
+
+- Greedy answers are exactly what the full model writes on its own; sampled answers follow the full model's probabilities exactly.
+- Some of our early GPU code adds numbers in a different order than Splash. So rounding, and sometimes a word, can
+  differ from Splash. That code passed long-document retrieval tests from 2K to 128K tokens, and quality checks.
+- Every speed change after that gives byte-for-byte the same numbers as the code it replaced. This holds even when
+  many guesses are checked at once.
+
+<details>
+<summary>Check it yourself</summary>
+
+The model check runs the real model through prompt reading, answer writing, batching and cache restore. It compares each
+result with a reference path, and it takes 30 s on the GPU:
+
+```bash
+make -j12 BUILD=build build/engine-tests/model-runtime-oracle
+build/engine-tests/model-runtime-oracle build/splash.metallib \
+  "$HOME/Library/Application Support/Splash/models/incoai/Qwen3.8-27B-Splash"
+# last line: model_runtime_oracle_test: PASS
+```
+
+</details>

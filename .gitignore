@@ -1,0 +1,12 @@
+# Modified by meowkernels.
+build/
+# BUILD=build-<name> trees (make BUILD=...), the fork's usual layout
+build-*/
+.venv
+.venv.install.lock
+install/models/
+.DS_Store
+__pycache__/
+.ruff_cache/
+dist/
+install/download-token
